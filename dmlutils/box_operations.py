@@ -53,11 +53,10 @@ def create_mask_by_2box(outer_box, inner_box, blur_radius=10):
     return mask
 
 
-
-
 def is_overlap(a, b):
     # 判断两个框是否相交
     return not (a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3])
+
 
 def merge_boxes(boxes):
     merged = []

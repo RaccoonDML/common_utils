@@ -38,15 +38,6 @@ def bytesio_to_pil(buffer):
     return Image.open(buffer)
 
 
-
-def rgba_to_whitebg(img, bg=(255, 255, 255, 255)):
-    img = img.convert('RGBA')
-    white_bg = Image.new('RGBA', img.size, bg)
-    result = Image.alpha_composite(white_bg, img)
-    return result.convert('RGB')
-
-
-
 def l_rgb_to_rgba(l_image):
     l_image = ImageOps.invert(normalize_image(l_image)).convert('L')
     black_image = Image.new('RGBA', l_image.size, (0,0,0,0))

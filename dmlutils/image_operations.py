@@ -19,44 +19,18 @@ import time
 import shutil
 import numpy as np
 from PIL import Image, ImageOps
-from skimage import morphology
 from torchvision.transforms.functional import to_tensor, to_pil_image
 from tqdm import tqdm
 from loguru import logger
 from io import BytesIO
 import random
-import cairosvg
-from potrace import Bitmap, POTRACE_TURNPOLICY_MINORITY
 
 
-# blacklevel 黑色阈值    turdsize 过滤污点力度   alphamax 最大角度   opttolerance 曲线简化容忍度
-def mask_to_svg(img: Image.Image, blacklevel=0.8):
-    """
-    usage:
-    import cairosvg
-    from potrace import Bitmap, POTRACE_TURNPOLICY_MINORITY
-
-    img = Image.open(img_path)
-    svg_content = mask_to_svg(img)
-    with open('output.svg', 'w') as f:
-        f.write(svg_content.decode('utf-8'))
-
-    mask = ImageOps.invert(mask).convert('L') # white bg, black line(object)
-    svg = mask_to_svg(mask)
-    png = Image.open(BytesIO(cairosvg.svg2png(bytestring=svg,output_width=boxw,output_height=boxh)))
-    """
-    bm = Bitmap(img, blacklevel=blacklevel)  # bigger blacklevel, more object, white bg, black line(object)
-    plist = bm.trace(
-        turdsize=2, turnpolicy=POTRACE_TURNPOLICY_MINORITY,
-        alphamax=1.0, opticurve=True, opttolerance=0.2)
-    parts = [f"M{c.start_point.x},{c.start_point.y}" + 
-            "".join(f"L{s.c.x},{s.c.y}L{s.end_point.x},{s.end_point.y}" if s.is_corner 
-                   else f"C{s.c1.x},{s.c1.y} {s.c2.x},{s.c2.y} {s.end_point.x},{s.end_point.y}"
-                   for s in c.segments) + "z" 
-            for c in plist]
-    svg_content = f'''<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="{img.width}" height="{img.height}" viewBox="0 0 {img.width} {img.height}"><path stroke="none" fill="black" fill-rule="evenodd" d="{"".join(parts)}"/></svg>'''
-    return svg_content.encode('utf-8')
-
+def rgba_to_whitebg(img, bg=(255, 255, 255, 255)):
+    img = img.convert('RGBA')
+    white_bg = Image.new('RGBA', img.size, bg)
+    result = Image.alpha_composite(white_bg, img)
+    return result.convert('RGB')
 
 
 def image_grid(imgs, rows, cols=None):
@@ -248,140 +222,8 @@ def paste_image_to_origin_image(overlay_shade, pad_list, box, original_size, mod
     transparent_image.paste(overlay_shade, (x1, y1))
     return transparent_image
 
-
-def rgba_to_whitebg(img, bg=(255, 255, 255, 255)):
-    img = img.convert('RGBA')
-    white_bg = Image.new('RGBA', img.size, bg)
-    result = Image.alpha_composite(white_bg, img)
-    return result.convert('RGB')
-
-
-# use_8_neighbors: True使用八邻域, False使用四邻域
-def get_neighbors(use_8_neighbors=False):
-    if use_8_neighbors:
-        return np.array([1, -1, 0, 0, 1, -1, 1, -1]).reshape(1,-1), \
-                np.array([0, 0, 1, -1, 1, -1, -1, 1]).reshape(1,-1), 8
-    else:
-        return np.array([1, -1, 0, 0]).reshape(1,-1), \
-                np.array([0, 0, 1, -1]).reshape(1,-1), 4
-
-
-def label_propagation(input_img, unknown_mask, end_lines, fill_endlines=True, max_iter=500, use_maxvalue_fill_endlines=False):
-    res_img  = input_img.copy()
-    unknown_mask = unknown_mask.copy()
-    height, width = input_img.shape[:2]
-    assert unknown_mask.shape == input_img.shape[:2], unknown_mask.shape
-    assert end_lines.shape == input_img.shape[:2], unknown_mask.shape
-    
-    dx, dy, n_neighbors = get_neighbors(use_8_neighbors=False)  # 默认使用四邻域（使用八邻域有问题）
-    kernel = np.ones((3,3),np.uint8)
-
-    for iter_index in range(1, max_iter):
-        # logger.debug(f'iter: {iter_index}')
-        # Perform dilation operation
-        dilated_mask = cv2.dilate(unknown_mask, kernel, iterations=1)  # h w
-
-        # Find edge pixels by comparing dilated mask with the original mask
-        edge_pixels = dilated_mask - unknown_mask   # h w
-        edge_pixels_coordinates = np.argwhere(edge_pixels > 0)  # n 2
-        repeat_edge_pixels_coordinates = edge_pixels_coordinates.repeat(n_neighbors, axis=0)  # n*neighbors 2
-
-        # Use numpy broadcasting instead of for loop
-        # dx: (1,neighbors), repeat_edge_pixels_coordinates[:,1]: (n,) -> (n,neighbors)
-        nx = dx + repeat_edge_pixels_coordinates[:,1].reshape((-1,n_neighbors))  # (n,neighbors)
-        nx = nx.reshape(-1)  # (n*neighbors,)
-        # dy: (1,neighbors), repeat_edge_pixels_coordinates[:,0]: (n,) -> (n,neighbors) 
-        ny = dy + repeat_edge_pixels_coordinates[:,0].reshape((-1,n_neighbors))  # (n,neighbors)
-        ny = ny.reshape(-1)  # (n*neighbors,)
-        # Boolean indexing to filter nx and ny based on the first four conditions
-        filtered_indices = np.where((0 <= nx) & (nx < width) & (0 <= ny) & (ny < height))[0] # N: pre-unknown-index
-        # Apply the additional conditions to the filtered indices
-        valid_thin    = (end_lines[ny[filtered_indices], nx[filtered_indices]] == 0)
-        valid_unknown = (unknown_mask[ny[filtered_indices], nx[filtered_indices]] != 0)
-        valid_indices = filtered_indices[valid_thin & valid_unknown] # M: unknown-index
-        
-        if valid_indices.shape[0] > 0:
-            valid_nx = nx[valid_indices] 
-            valid_ny = ny[valid_indices]
-            unknown_mask[valid_ny, valid_nx] = 0
-            newedge_x = repeat_edge_pixels_coordinates[valid_indices][:, 1]
-            newedge_y = repeat_edge_pixels_coordinates[valid_indices][:, 0]
-            res_img[valid_ny, valid_nx] = res_img[newedge_y, newedge_x] 
-        else:
-            break
-
-    if fill_endlines:
-        # 获取所有端点像素的位置
-        end_points = np.argwhere(end_lines > 0)  # (N, 2) array of [y, x] coordinates
-        if use_maxvalue_fill_endlines:
-            values = cv2.dilate(res_img, np.ones((3,3), np.float32), iterations=1)
-        else:
-            values = cv2.erode(res_img, np.ones((3,3), np.float32), iterations=1)
-        res_img[end_points[:, 0], end_points[:, 1]] = values[end_points[:, 0], end_points[:, 1]]
-        unknown_mask[end_points[:, 0], end_points[:, 1]] = 0
-
-    return unknown_mask, res_img
-
-
-def close_line_gaps(base_image, lineart_image, dilation_iter=1, line_threshold=50, use_maxvalue_fill_endlines=False):
-    lines_array = np.array(lineart_image)
-    unknown_mask = ((lines_array > line_threshold)*255).astype(np.uint8)
-    endpoints = morphology.skeletonize((lines_array > 128))
-
-    if dilation_iter > 0:
-        # 使用十字形核，减少对角线方向的膨胀
-        cross_kernel = np.array([
-            [0, 1, 0],
-            [1, 1, 1],
-            [0, 1, 0]
-        ], dtype=np.uint8)
-        dilated_mask = cv2.dilate(unknown_mask, cross_kernel, iterations=dilation_iter)
-    else:
-        dilated_mask = unknown_mask
-
-    remain_unknown_mask, filled_image = label_propagation(np.array(base_image), copy.deepcopy(dilated_mask), copy.deepcopy(endpoints), use_maxvalue_fill_endlines=use_maxvalue_fill_endlines)
-    # 填充剩余的未知区域
-    _, filled_image = label_propagation(filled_image, copy.deepcopy(remain_unknown_mask), np.zeros_like(remain_unknown_mask), use_maxvalue_fill_endlines=use_maxvalue_fill_endlines)
-
-    return to_pil_image(filled_image), to_pil_image(dilated_mask), to_pil_image((endpoints*255).astype(np.uint8))
-    # return to_pil_image(filled_image)
-
-
-def inpaint_line_gaps(base_image: Image.Image, lineart_image: Image.Image, dilation_iter: int = 1) -> Image.Image:
-    # Convert lineart to mask
-    lines_array = np.array(lineart_image)
-    unknown_mask = ((lines_array > 0)*255).astype(np.uint8)
-    
-    # Dilate mask if specified
-    if dilation_iter > 0:
-        cross_kernel = np.array([
-            [0, 1, 0],
-            [1, 1, 1], 
-            [0, 1, 0]
-        ], dtype=np.uint8)
-        unknown_mask = cv2.dilate(unknown_mask, cross_kernel, iterations=dilation_iter)
-
-    # Convert base image to numpy array
-    base_array = np.array(base_image)
-    
-    # Apply inpainting
-    filled_image = cv2.inpaint(base_array, unknown_mask, 5, cv2.INPAINT_TELEA)
-    
-    return Image.fromarray(filled_image)
-
-
-# %%
-# Unet: lc, lcshade -> shade
-# ==============
 def zpdd_multiply(stage, overlay):
     return stage * overlay
 
 def xxjd_lineardodge(stage, overlay):
     return torch.clamp(stage + overlay, 0, 1)
-
-
-def pil_to_buffer(pil_image):
-    buffer = BytesIO()
-    pil_image.save(buffer, format='PNG')
-    buffer.seek(0)
-    return buffer
