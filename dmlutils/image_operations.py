@@ -10,20 +10,84 @@ shade = get_shade(lc_image)
 shade_final = paste_image_to_origin_image(shade, pad_list, box, original_size, mode='RGB')
 """
 # =======================
+# ==========================
+# 系统与文件操作
+# ==========================
 import os
-import cv2
+import shutil
+import time
 import copy
 import math
-import torch
-import time
-import shutil
+import random
+from io import BytesIO
+
+# ==========================
+# 数值计算与数组操作
+# ==========================
 import numpy as np
+
+# ==========================
+# 图像处理与计算机视觉
+# ==========================
 from PIL import Image, ImageOps
+import cv2
+import cairosvg
+from skimage import morphology
+
+# ==========================
+# PyTorch & torchvision
+# ==========================
+import torch
 from torchvision.transforms.functional import to_tensor, to_pil_image
+
+# ==========================
+# 进度条与日志
+# ==========================
 from tqdm import tqdm
 from loguru import logger
-from io import BytesIO
-import random
+
+
+
+
+def normalize_image(image):
+    image_array = np.array(image)
+    if image_array.max() > image_array.min():
+        image_array = (image_array - image_array.min()) / (image_array.max() - image_array.min())
+    return Image.fromarray((image_array * 255).astype(np.uint8))
+
+
+def binarize_image(image, thresh=128):
+    image = image.convert('L')
+    arr = np.array(image)
+    binary = np.where(arr > thresh, 255, 0).astype(np.uint8)
+    return Image.fromarray(binary)
+
+
+def pil_to_bytes(img: Image, format: str = 'PNG') -> bytes:
+    "for diffusers dataset"
+    byte_arr = BytesIO()
+    img.save(byte_arr, format=format)
+    byte_data = byte_arr.getvalue()
+    return byte_data
+
+def pil_to_bytesio(image):
+    """Convert PIL Image to BytesIO"""
+    buffer = BytesIO()
+    image.save(buffer, format='PNG')
+    buffer.seek(0)
+    return buffer
+
+def bytesio_to_pil(buffer):
+    """Convert BytesIO to PIL Image"""
+    buffer.seek(0)
+    return Image.open(buffer)
+
+
+def l_rgb_to_rgba(l_image):
+    l_image = ImageOps.invert(normalize_image(l_image)).convert('L')
+    black_image = Image.new('RGBA', l_image.size, (0,0,0,0))
+    black_image.putalpha(l_image)
+    return black_image
 
 
 def rgba_to_whitebg(img, bg=(255, 255, 255, 255)):
@@ -42,6 +106,62 @@ def image_grid(imgs, rows, cols=None):
     for i, img in enumerate(imgs):
         grid.paste(img, box=(i % cols * w, i // cols * h))
     return grid
+
+
+def pad_short_side_to_size(img: Image.Image, size: int, color=(255,255,255)):
+    """中心 pad"""
+    w, h = img.size
+    new_w = max(w, size)
+    new_h = max(h, size)
+    if (new_w, new_h) == (w, h):
+        return img
+
+    mode = img.mode
+    if mode in ("RGBA", "LA") and (len(color) == 3):
+        bg_color = tuple(list(color) + [255])
+    elif mode == "L" and isinstance(color, tuple):
+        bg_color = color[0]
+    else:
+        bg_color = color
+
+    bg = Image.new(mode, (new_w, new_h), bg_color)
+    offset = ((new_w - w) // 2, (new_h - h) // 2)
+    bg.paste(img, offset)
+    return bg
+
+
+def resize_short_side_to_size(img: Image.Image, size: int, resample=Image.LANCZOS):
+    """将短边缩放到指定大小，保持比例"""
+    w, h = img.size
+    min_size = min(w, h)
+    if min_size <= size:
+        return img
+
+    if w < h:
+        scale = size / w
+        new_w = size
+        new_h = math.ceil(h * scale)
+    else:
+        scale = size / h
+        new_h = size
+        new_w = math.ceil(w * scale)
+
+    new_w = max(new_w, size)
+    new_h = max(new_h, size)
+
+    return img.resize((new_w, new_h), resample=resample)
+
+
+def crop_image(image_path, box):
+    if isinstance(image_path, str):
+        image = rgba_to_whitebg(Image.open(image_path))
+    elif isinstance(image_path, Image.Image):
+        image = rgba_to_whitebg(image_path)
+    else:
+        raise TypeError("image_path must be either a string or a PIL Image object")
+    image = image.crop(box)
+    return image
+
 
 
 def crop_mod_resize(image, box, size, pad_value, mod_value=32):
