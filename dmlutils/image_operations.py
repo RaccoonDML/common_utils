@@ -1,13 +1,21 @@
 # %%
 # 工具函数v3 ===========================
 """
-Usage:
-original_lc_image = Image.open(lc_path)
-original_size = original_lc_image.size
-box = get_box(lc_path)
-lc_image, pad_list = crop_pad_resize(lc_path, box, size=1024, pad_value=255)
-shade = get_shade(lc_image)
-shade_final = paste_image_to_origin_image(shade, pad_list, box, original_size, mode='RGB')
+Usage1:
+x = rgba_to_whitebg(Image.open(x_path))
+original_size = x.size
+box = get_box(x)
+x, pad_list = crop_pad_resize(x, box, size=1024, pad_value=255)
+y = ops(x)
+y = paste_image_to_origin_image(y, pad_list, box, original_size, mode='RGB')
+
+Usage2:
+x = rgba_to_whitebg(Image.open(x_path))
+original_size = x.size
+box = get_box(x)
+x = crop_image(x, box)
+y = ops(x)
+y = paste_image_to_origin_image_without_unpad(y, box, original_size, mode='RGB')
 """
 # =======================
 # ==========================
@@ -340,6 +348,22 @@ def paste_image_to_origin_image(overlay_shade, pad_list, box, original_size, mod
         transparent_image = background_image.copy()
 
     transparent_image.paste(overlay_shade, (x1, y1))
+    return transparent_image
+
+
+def paste_image_to_origin_image_without_unpad(cropped_image, box, original_size, mode='RGB', bg=(255,255,255), background_image=None):
+    x1, y1, x2, y2 = box
+    box_original_size = (x2 - x1, y2 - y1)
+    cropped_image = cropped_image.resize(box_original_size)
+    if background_image is None:
+        if mode == 'RGBA':
+            transparent_image = Image.new('RGBA', original_size, (0, 0, 0, 0))
+        else:
+            transparent_image = Image.new('RGB', original_size, bg)
+    else:
+        transparent_image = background_image.copy()
+
+    transparent_image.paste(cropped_image, (x1, y1))
     return transparent_image
 
 def zpdd_multiply(stage, overlay):
