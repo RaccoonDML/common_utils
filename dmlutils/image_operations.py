@@ -116,6 +116,17 @@ def image_grid(imgs, rows, cols=None):
     return grid
 
 
+
+## data3 process
+
+# buggy version
+# def pad_short_side_to_size(img, size):
+#     """Pad image to 1024 if width or height is less than 1024, without preserving aspect ratio"""
+#     w, h = img.size
+#     new_w = max(w, size)
+#     new_h = max(h, size)
+#     img = ImageOps.pad(img, (new_w, new_h), color=(255, 255, 255, 0))
+#     return img
 def pad_short_side_to_size(img: Image.Image, size: int, color=(255,255,255)):
     """中心 pad"""
     w, h = img.size
@@ -139,7 +150,8 @@ def pad_short_side_to_size(img: Image.Image, size: int, color=(255,255,255)):
 
 
 def resize_short_side_to_size(img: Image.Image, size: int, resample=Image.LANCZOS):
-    """将短边缩放到指定大小，保持比例"""
+    """如果短边大于size, 将短边缩放到指定大小，保持比例
+    其他情况不变"""
     w, h = img.size
     min_size = min(w, h)
     if min_size <= size:
@@ -148,7 +160,7 @@ def resize_short_side_to_size(img: Image.Image, size: int, resample=Image.LANCZO
     if w < h:
         scale = size / w
         new_w = size
-        new_h = math.ceil(h * scale)
+        new_h = math.ceil(h * scale) # buggy int(h * scale)
     else:
         scale = size / h
         new_h = size
@@ -156,8 +168,26 @@ def resize_short_side_to_size(img: Image.Image, size: int, resample=Image.LANCZO
 
     new_w = max(new_w, size)
     new_h = max(new_h, size)
-
     return img.resize((new_w, new_h), resample=resample)
+
+
+def resize_long_side_to_size(img: Image.Image, size: int, resample=Image.LANCZOS):
+    w, h = img.size
+    max_size = max(w, h)
+    if max_size > size:
+        if w > h:
+            scale = size / w
+            new_w = size
+            new_h = math.ceil(h * scale)
+        else:
+            scale = size / h
+            new_h = size
+            new_w = math.ceil(w * scale)
+        img = img.resize((new_w, new_h), resample=resample)
+    assert max(img.size) == size
+    return img
+
+
 
 
 def crop_image(image_path, box):
@@ -371,3 +401,4 @@ def zpdd_multiply(stage, overlay):
 
 def xxjd_lineardodge(stage, overlay):
     return torch.clamp(stage + overlay, 0, 1)
+# %%
