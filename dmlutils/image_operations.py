@@ -39,7 +39,6 @@ import numpy as np
 # ==========================
 from PIL import Image, ImageOps
 import cv2
-import cairosvg
 from skimage import morphology
 
 # ==========================
