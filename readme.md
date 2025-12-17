@@ -18,7 +18,7 @@
 ## 安装
 
 #### 指定版本
-`pip install git+https://github.com/RaccoonDML/common_utils.git@3.1.0`
+`pip install git+https://github.com/RaccoonDML/common_utils.git@x.x.x`
 
 #### 最新版本
 
