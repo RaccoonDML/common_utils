@@ -1,6 +1,5 @@
 from loguru import logger
 from PIL import Image, ImageOps, ImageEnhance, ImageDraw, ImageFilter
-from torchvision.transforms.functional import to_tensor, to_pil_image
 from .timer import change_str_color
 import numpy as np
 import cv2

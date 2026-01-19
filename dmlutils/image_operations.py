@@ -21,39 +21,11 @@ y = paste_image_to_origin_image_without_unpad(y, box, original_size, mode='RGB')
 # ==========================
 # 系统与文件操作
 # ==========================
-import os
-import shutil
-import time
-import copy
 import math
-import random
 from io import BytesIO
-
-# ==========================
-# 数值计算与数组操作
-# ==========================
 import numpy as np
-
-# ==========================
-# 图像处理与计算机视觉
-# ==========================
 from PIL import Image, ImageOps
 import cv2
-from skimage import morphology
-
-# ==========================
-# PyTorch & torchvision
-# ==========================
-import torch
-from torchvision.transforms.functional import to_tensor, to_pil_image
-
-# ==========================
-# 进度条与日志
-# ==========================
-from tqdm import tqdm
-from loguru import logger
-
-
 
 
 def normalize_image(image):
@@ -395,9 +367,4 @@ def paste_image_to_origin_image_without_unpad(cropped_image, box, original_size,
     transparent_image.paste(cropped_image, (x1, y1))
     return transparent_image
 
-def zpdd_multiply(stage, overlay):
-    return stage * overlay
 
-def xxjd_lineardodge(stage, overlay):
-    return torch.clamp(stage + overlay, 0, 1)
-# %%
